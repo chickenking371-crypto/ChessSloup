@@ -46,6 +46,12 @@
             margin-bottom: 20px;
         }
 
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
@@ -169,7 +175,10 @@
 
     <!-- HISTORIE ZÁPASŮ -->
     <div class="card">
-        <h2>📜 Historie zápasů</h2>
+        <div class="card-header">
+            <h2>📜 Historie zápasů</h2>
+            <button onclick="clearHistory()" class="btn-danger admin-only" style="width: auto; padding: 6px 12px;">🗑️ Smazat celou historii</button>
+        </div>
         <table>
             <thead>
                 <tr>
@@ -384,11 +393,22 @@
         }
     };
 
-    // Smazat hráče
+    // Smazat jednoho hráče
     window.deletePlayer = async (id) => {
         if (confirm("Opravdu chceš smazat tohoto hráče?")) {
             await deleteDoc(doc(db, "players", id));
             loadData();
+        }
+    };
+
+    // Smazat celou historii zápasů
+    window.clearHistory = async () => {
+        if (confirm("Opravdu chceš SMAZAT CELOU HISTORII zápasů? Tato akce nejde vrátit.")) {
+            const matchesSnapshot = await getDocs(collection(db, "matches"));
+            matchesSnapshot.forEach(async (docSnap) => {
+                await deleteDoc(doc(db, "matches", docSnap.id));
+            });
+            setTimeout(loadData, 500);
         }
     };
 </script>
