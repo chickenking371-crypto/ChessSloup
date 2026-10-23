@@ -1,1 +1,371 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Šachový kroužek ChessSloup</title>
+    <style>
+        :root {
+            --bg-color: #f4f6f8;
+            --card-bg: #ffffff;
+            --primary: #2c3e50;
+            --accent: #27ae60;
+            --danger: #e74c3c;
+            --text: #333;
+        }
 
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #ddd;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        h1, h2 { color: var(--primary); }
+
+        .card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th { background-color: #f8f9fa; }
+
+        input, select, button {
+            padding: 10px;
+            margin: 5px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button:hover { opacity: 0.9; }
+        .btn-danger { background-color: var(--danger); }
+        .btn-accent { background-color: var(--accent); }
+
+        .admin-only { display: none; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+        @media (max-width: 600px) {
+            .grid-2 { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>♟️ Šachový kroužek</h1>
+        <div id="auth-status">
+            <button onclick="toggleAuthModal()" style="width: auto;">Přihlášení Admin</button>
+        </div>
+    </header>
+
+    <!-- Modal pro přihlášení -->
+    <div id="auth-modal" class="card" style="display: none;">
+        <h3>Přihlášení pro učitele (Admin)</h3>
+        <input type="email" id="admin-email" placeholder="Email">
+        <input type="password" id="admin-password" placeholder="Heslo">
+        <button onclick="login()">Přihlásit se</button>
+        <p id="auth-error" style="color: red;"></p>
+    </div>
+
+    <!-- ADMIN PANEL (Viditelný pouze po přihlášení) -->
+    <div id="admin-panel" class="card admin-only" style="border: 2px solid var(--accent);">
+        <h2>⚙️ Admin Panel</h2>
+        <div class="grid-2">
+            <!-- Přidání hráče -->
+            <div>
+                <h3>Přidat nového hráče</h3>
+                <input type="text" id="new-player-name" placeholder="Jméno a příjmení">
+                <button class="btn-accent" onclick="addPlayer()">Přidat hráče</button>
+            </div>
+
+            <!-- Zapsání zápasu -->
+            <div>
+                <h3>Zapsat nový zápas</h3>
+                <select id="match-white"><option value="">Bílý hráč...</option></select>
+                <select id="match-black"><option value="">Černý hráč...</option></select>
+                <select id="match-result">
+                    <option value="white">Výhra Bílého (+3b)</option>
+                    <option value="black">Výhra Černého (+3b)</option>
+                    <option value="draw">Remíza (+1b oběma)</option>
+                </select>
+                <button class="btn-accent" onclick="addMatch()">Uložit zápas</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ŽEBŘÍČEK -->
+    <div class="card">
+        <h2>🏆 Žebříček hráčů</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Pořadí</th>
+                    <th>Jméno</th>
+                    <th>Body</th>
+                    <th>Zápasy</th>
+                    <th class="admin-only">Akce</th>
+                </tr>
+            </thead>
+            <tbody id="leaderboard-body">
+                <tr><td colspan="5">Načítám data...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- HISTORIE ZÁPASŮ -->
+    <div class="card">
+        <h2>📜 Historie zápasů</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Datum</th>
+                    <th>Bílý</th>
+                    <th>Černý</th>
+                    <th>Výsledek</th>
+                </tr>
+            </thead>
+            <tbody id="history-body">
+                <tr><td colspan="4">Načítám data...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Firebase SDK (Skripty načítané bez npm) -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    // -------------------------------------------------------------
+    // 1. ZDE VLOŽ SVOU FIREBASE KONFIGURACI ZE SNÍMKU OBRAZOVKY / NASTAVENÍ
+    // -------------------------------------------------------------
+    const firebaseConfig = {
+       apiKey: "AIzaSyCw4a_nCpYMwYrXRjWHwUe8E41HTY7blis",
+  authDomain: "chesoup-78039.firebaseapp.com",
+  projectId: "chesoup-78039",
+  storageBucket: "chesoup-78039.firebasestorage.app",
+  messagingSenderId: "746564297487",
+  appId: "1:746564297487:web:e5d85ce6c0f8b54e4ad47a"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    let isAdmin = false;
+
+    // Kontrola přihlášení uživatele
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            isAdmin = true;
+            document.getElementById('auth-status').innerHTML = `<button class="btn-danger" onclick="logout()" style="width: auto;">Odhlásit (${user.email})</button>`;
+            document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'block');
+            document.getElementById('auth-modal').style.display = 'none';
+        } else {
+            isAdmin = false;
+            document.getElementById('auth-status').innerHTML = `<button onclick="toggleAuthModal()" style="width: auto;">Přihlášení Admin</button>`;
+            document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
+        }
+        loadData();
+    });
+
+    // Přihlášení
+    window.login = async () => {
+        const email = document.getElementById('admin-email').value;
+        const pass = document.getElementById('admin-password').value;
+        try {
+            await signInWithEmailAndPassword(auth, email, pass);
+            document.getElementById('auth-error').innerText = "";
+        } catch (err) {
+            document.getElementById('auth-error').innerText = "Chyba přihlášení: " + err.message;
+        }
+    };
+
+    // Odhlášení
+    window.logout = () => signOut(auth);
+
+    window.toggleAuthModal = () => {
+        const modal = document.getElementById('auth-modal');
+        modal.style.display = modal.style.display === 'none' ? 'block' : 'none';
+    };
+
+    // Načtení dat z databáze
+    async function loadData() {
+        // 1. Načíst hráče
+        const qPlayers = query(collection(db, "players"), orderBy("points", "desc"));
+        const playersSnapshot = await getDocs(qPlayers);
+        
+        let leaderboardHtml = "";
+        let playerOptionsHtml = '<option value="">Vyber hráče...</option>';
+        let rank = 1;
+
+        playersSnapshot.forEach((docSnap) => {
+            const p = docSnap.data();
+            const id = docSnap.id;
+            
+            leaderboardHtml += `
+                <tr>
+                    <td><strong>${rank++}.</strong></td>
+                    <td>${p.name}</td>
+                    <td><strong>${p.points} b.</strong></td>
+                    <td>${p.matchesPlayed || 0}</td>
+                    <td class="admin-only" style="display: ${isAdmin ? 'table-cell' : 'none'}">
+                        <button onclick="editPoints('${id}', ${p.points})" style="width:auto; padding:3px 8px;">+/- body</button>
+                        <button onclick="deletePlayer('${id}')" class="btn-danger" style="width:auto; padding:3px 8px;">✕</button>
+                    </td>
+                </tr>
+            `;
+
+            playerOptionsHtml += `<option value="${id}">${p.name} (${p.points}b)</option>`;
+        });
+
+        document.getElementById('leaderboard-body').innerHTML = leaderboardHtml || "<tr><td colspan='5'>Zatím žádní hráči.</td></tr>";
+        document.getElementById('match-white').innerHTML = playerOptionsHtml;
+        document.getElementById('match-black').innerHTML = playerOptionsHtml;
+
+        // 2. Načíst historii
+        const qMatches = query(collection(db, "matches"), orderBy("createdAt", "desc"));
+        const matchesSnapshot = await getDocs(qMatches);
+        let historyHtml = "";
+
+        matchesSnapshot.forEach((docSnap) => {
+            const m = docSnap.data();
+            let resultText = "Remíza";
+            if (m.result === 'white') resultText = `Výhra: ${m.whiteName}`;
+            if (m.result === 'black') resultText = `Výhra: ${m.blackName}`;
+
+            const date = m.createdAt ? new Date(m.createdAt.toDate()).toLocaleDateString('cs-CZ') : 'Dnes';
+
+            historyHtml += `
+                <tr>
+                    <td>${date}</td>
+                    <td>${m.whiteName}</td>
+                    <td>${m.blackName}</td>
+                    <td><strong>${resultText}</strong></td>
+                </tr>
+            `;
+        });
+
+        document.getElementById('history-body').innerHTML = historyHtml || "<tr><td colspan='4'>Zatím žádné odehrané zápasy.</td></tr>";
+    }
+
+    // Přidat hráče
+    window.addPlayer = async () => {
+        const nameInput = document.getElementById('new-player-name');
+        if (!nameInput.value.trim()) return alert("Zadej jméno hráče");
+
+        await addDoc(collection(db, "players"), {
+            name: nameInput.value.trim(),
+            points: 0,
+            matchesPlayed: 0
+        });
+
+        nameInput.value = "";
+        loadData();
+    };
+
+    // Zapsat zápas + přičíst body
+    window.addMatch = async () => {
+        const whiteSelect = document.getElementById('match-white');
+        const blackSelect = document.getElementById('match-black');
+        const result = document.getElementById('match-result').value;
+
+        if (!whiteSelect.value || !blackSelect.value) return alert("Vyber oba hráče!");
+        if (whiteSelect.value === blackSelect.value) return alert("Hráč nemůže hrát sám se sebou!");
+
+        const whiteName = whiteSelect.options[whiteSelect.selectedIndex].text.split(' (')[0];
+        const blackName = blackSelect.options[blackSelect.selectedIndex].text.split(' (')[0];
+
+        // Uložit zápas
+        await addDoc(collection(db, "matches"), {
+            whiteId: whiteSelect.value,
+            whiteName: whiteName,
+            blackId: blackSelect.value,
+            blackName: blackName,
+            result: result,
+            createdAt: serverTimestamp()
+        });
+
+        // Úprava bodů hráčům
+        const playersSnapshot = await getDocs(collection(db, "players"));
+        playersSnapshot.forEach(async (docSnap) => {
+            const p = docSnap.data();
+            if (docSnap.id === whiteSelect.value || docSnap.id === blackSelect.value) {
+                let addPoints = 0;
+                if (result === 'draw') addPoints = 1;
+                else if (result === 'white' && docSnap.id === whiteSelect.value) addPoints = 3;
+                else if (result === 'black' && docSnap.id === blackSelect.value) addPoints = 3;
+
+                await updateDoc(doc(db, "players", docSnap.id), {
+                    points: (p.points || 0) + addPoints,
+                    matchesPlayed: (p.matchesPlayed || 0) + 1
+                });
+            }
+        });
+
+        setTimeout(loadData, 500);
+    };
+
+    // Ruční úprava bodů
+    window.editPoints = async (id, currentPoints) => {
+        const newPoints = prompt("Zadej nový celkový počet bodů:", currentPoints);
+        if (newPoints !== null) {
+            await updateDoc(doc(db, "players", id), {
+                points: parseInt(newPoints) || 0
+            });
+            loadData();
+        }
+    };
+
+    // Smazat hráče
+    window.deletePlayer = async (id) => {
+        if (confirm("Opravdu chceš smazat tohoto hráče?")) {
+            await deleteDoc(doc(db, "players", id));
+            loadData();
+        }
+    };
+</script>
+</body>
+</html>
