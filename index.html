@@ -155,16 +155,16 @@
 
     <!-- ŽEBŘÍČEK -->
     <div class="card">
-        <h2>🏆 Žebříček hráčů</h2>
+        <h2>🏆 Žebříček hráčů (řazeno podle průměru bodů)</h2>
         <table>
             <thead>
                 <tr>
                     <th>Pořadí</th>
                     <th>Jméno</th>
-                    <th>Body</th>
-                    <th>Zápasy</th>
                     <th>Průměr b./zápas</th>
-                    <th class="admin-only">Akce</th>
+                    <th>Celkem bodů</th>
+                    <th>Odehrané zápasy</th>
+                    <th class="admin-only">Akce Admin</th>
                 </tr>
             </thead>
             <tbody id="leaderboard-body">
@@ -254,37 +254,48 @@
     // Načtení dat z databáze
     async function loadData() {
         // 1. Načíst hráče
-        const qPlayers = query(collection(db, "players"), orderBy("points", "desc"));
-        const playersSnapshot = await getDocs(qPlayers);
-        
-        let leaderboardHtml = "";
-        let playerOptionsHtml = '<option value="">Vyber hráče...</option>';
-        let rank = 1;
+        const playersSnapshot = await getDocs(collection(db, "players"));
+        let playersList = [];
 
         playersSnapshot.forEach((docSnap) => {
             const p = docSnap.data();
             const id = docSnap.id;
             const matches = p.matchesPlayed || 0;
             const points = p.points || 0;
-            
-            // Výpočet průměru bodů na zápas
-            const avgPoints = matches > 0 ? (points / matches).toFixed(1) : "0.0";
-            
+            const avgPoints = matches > 0 ? (points / matches) : 0;
+
+            playersList.push({
+                id: id,
+                name: p.name,
+                points: points,
+                matchesPlayed: matches,
+                avgPoints: avgPoints
+            });
+        });
+
+        // ŘAZENÍ PODLE PRŮMĚRU BODŮ (SESTUPNĚ)
+        playersList.sort((a, b) => b.avgPoints - a.avgPoints);
+
+        let leaderboardHtml = "";
+        let playerOptionsHtml = '<option value="">Vyber hráče...</option>';
+        let rank = 1;
+
+        playersList.forEach((p) => {
             leaderboardHtml += `
                 <tr>
                     <td><strong>${rank++}.</strong></td>
                     <td>${p.name}</td>
-                    <td><strong>${points} b.</strong></td>
-                    <td>${matches}</td>
-                    <td>${avgPoints} b./zápas</td>
+                    <td><strong>${p.avgPoints.toFixed(1)} b./zápas</strong></td>
+                    <td>${p.points} b.</td>
+                    <td>${p.matchesPlayed}</td>
                     <td class="admin-only" style="display: ${isAdmin ? 'table-cell' : 'none'}">
-                        <button onclick="editPoints('${id}', ${points})" style="width:auto; padding:3px 8px;">+/- body</button>
-                        <button onclick="deletePlayer('${id}')" class="btn-danger" style="width:auto; padding:3px 8px;">✕</button>
+                        <button onclick="editStats('${p.id}', ${p.points}, ${p.matchesPlayed})" style="width:auto; padding:3px 8px;">✏️ Upravit</button>
+                        <button onclick="deletePlayer('${p.id}')" class="btn-danger" style="width:auto; padding:3px 8px;">✕</button>
                     </td>
                 </tr>
             `;
 
-            playerOptionsHtml += `<option value="${id}">${p.name} (${points}b)</option>`;
+            playerOptionsHtml += `<option value="${p.id}">${p.name} (${p.avgPoints.toFixed(1)} b./zápas)</option>`;
         });
 
         document.getElementById('leaderboard-body').innerHTML = leaderboardHtml || "<tr><td colspan='6'>Zatím žádní hráči.</td></tr>";
@@ -332,7 +343,7 @@
         loadData();
     };
 
-    // Zapsat zápas + přepočet bodů (+30 / -30 / +10)
+    // Zapsat zápas + přepočet bodů
     window.addMatch = async () => {
         const whiteSelect = document.getElementById('match-white');
         const blackSelect = document.getElementById('match-black');
@@ -354,7 +365,7 @@
             createdAt: serverTimestamp()
         });
 
-        // Úprava bodů hráčům podle nových pravidel
+        // Úprava bodů a počtu zápasů hráčům
         const playersSnapshot = await getDocs(collection(db, "players"));
         playersSnapshot.forEach(async (docSnap) => {
             const p = docSnap.data();
@@ -365,11 +376,11 @@
                 let pointChange = 0;
 
                 if (result === 'draw') {
-                    pointChange = 10; // Remíza: +10 pro oba
+                    pointChange = 10;
                 } else if (result === 'white') {
-                    pointChange = isWhite ? 30 : -30; // Výhra bílého: bílý +30, černý -30
+                    pointChange = isWhite ? 30 : -30;
                 } else if (result === 'black') {
-                    pointChange = isBlack ? 30 : -30; // Výhra černého: černý +30, bílý -30
+                    pointChange = isBlack ? 30 : -30;
                 }
 
                 await updateDoc(doc(db, "players", docSnap.id), {
@@ -382,18 +393,23 @@
         setTimeout(loadData, 500);
     };
 
-    // Ruční úprava bodů
-    window.editPoints = async (id, currentPoints) => {
-        const newPoints = prompt("Zadej nový celkový počet bodů:", currentPoints);
-        if (newPoints !== null) {
-            await updateDoc(doc(db, "players", id), {
-                points: parseInt(newPoints) || 0
-            });
-            loadData();
-        }
+    // Ruční úprava bodů A počtu zápasů pro Admina
+    window.editStats = async (id, currentPoints, currentMatches) => {
+        const newPoints = prompt("Zadej celkový počet BODŮ:", currentPoints);
+        if (newPoints === null) return;
+
+        const newMatches = prompt("Zadej celkový počet ODEHRANÝCH ZÁPASŮ:", currentMatches);
+        if (newMatches === null) return;
+
+        await updateDoc(doc(db, "players", id), {
+            points: parseInt(newPoints) || 0,
+            matchesPlayed: parseInt(newMatches) || 0
+        });
+
+        loadData();
     };
 
-    // Smazat jednoho hráče
+    // Smazat hráče
     window.deletePlayer = async (id) => {
         if (confirm("Opravdu chceš smazat tohoto hráče?")) {
             await deleteDoc(doc(db, "players", id));
@@ -403,7 +419,7 @@
 
     // Smazat celou historii zápasů
     window.clearHistory = async () => {
-        if (confirm("Opravdu chceš SMAZAT CELOU HISTORII zápasů? Tato akce nejde vrátit.")) {
+        if (confirm("Opravdu chceš SMAZAT CELOU HISTORII zápasů?")) {
             const matchesSnapshot = await getDocs(collection(db, "matches"));
             matchesSnapshot.forEach(async (docSnap) => {
                 await deleteDoc(doc(db, "matches", docSnap.id));
