@@ -273,8 +273,13 @@
             });
         });
 
-        // ŘAZENÍ PODLE PRŮMĚRU BODŮ (SESTUPNĚ)
-        playersList.sort((a, b) => b.avgPoints - a.avgPoints);
+        // 🏆 ŘAZENÍ: Primárně podle průměru bodů -> Při shodě rozhodují celkové body
+        playersList.sort((a, b) => {
+            if (Math.abs(b.avgPoints - a.avgPoints) < 0.0001) {
+                return b.points - a.points;
+            }
+            return b.avgPoints - a.avgPoints;
+        });
 
         let leaderboardHtml = "";
         let playerOptionsHtml = '<option value="">Vyber hráče...</option>';
@@ -343,7 +348,7 @@
         loadData();
     };
 
-    // Zapsat zápas + přepočet bodů
+    // Zapsat zápas + přepočet bodů (+30 / -30 / +10)
     window.addMatch = async () => {
         const whiteSelect = document.getElementById('match-white');
         const blackSelect = document.getElementById('match-black');
@@ -365,7 +370,7 @@
             createdAt: serverTimestamp()
         });
 
-        // Úprava bodů a počtu zápasů hráčům
+        // Úprava bodů a zápasů
         const playersSnapshot = await getDocs(collection(db, "players"));
         playersSnapshot.forEach(async (docSnap) => {
             const p = docSnap.data();
@@ -393,7 +398,7 @@
         setTimeout(loadData, 500);
     };
 
-    // Ruční úprava bodů A počtu zápasů pro Admina
+    // Ruční úprava bodů i zápasů pro Admina
     window.editStats = async (id, currentPoints, currentMatches) => {
         const newPoints = prompt("Zadej celkový počet BODŮ:", currentPoints);
         if (newPoints === null) return;
